@@ -1,76 +1,385 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QSpinBox, QPushButton, QTableWidget, QTableWidgetItem
+    QLabel, QSpinBox, QPushButton, QTableWidget, QTableWidgetItem, 
+    QMessageBox, QScrollArea, QTextEdit
 )
+from PyQt6.QtCore import Qt
+
+
+class MatrizModel:
+    @staticmethod
+    def sumar(matrices):
+        f_base, c_base = len(matrices[0]), len(matrices[0][0])
+        res = [fila[:] for fila in matrices[0]]
+        for m in matrices[1:]:
+            for i in range(f_base):
+                for j in range(c_base):
+                    res[i][j] += m[i][j]
+        return res
+
+    @staticmethod
+    def restar(matrices):
+        f_base, c_base = len(matrices[0]), len(matrices[0][0])
+        res = [fila[:] for fila in matrices[0]]
+        for m in matrices[1:]:
+            for i in range(f_base):
+                for j in range(c_base):
+                    res[i][j] -= m[i][j]
+        return res
+
+    @staticmethod
+    def multiplicar(matrices):
+        res = matrices[0]
+        for m in matrices[1:]:
+            f_A, c_A = len(res), len(res[0])
+            f_B, c_B = len(m), len(m[0])
+            sub_res = []
+            for i in range(f_A):
+                fila = []
+                for j in range(c_B):
+                    suma = 0
+                    for k in range(c_A):
+                        suma += res[i][k] * m[k][j]
+                    fila.append(suma)
+                sub_res.append(fila)
+            res = sub_res
+        return res
+
+    @staticmethod
+    def formato_matriz_str(matriz, titulo=""):
+        texto = f"--- {titulo} ---\n" if titulo else ""
+        for fila in matriz:
+            coefs = "  ".join([f"{val:8.2f}" for val in fila[:-1]])
+            b_val = f"{fila[-1]:8.2f}"
+            texto += f"[ {coefs}  | {b_val} ]\n"
+        return texto + "\n"
+
+    @staticmethod
+    def gauss_resolver_completo(A_orig, b_orig):
+        m = len(A_orig)        # Número de ecuaciones
+        n = len(A_orig[0])     # Número de variables
+        
+        Ab = []
+        for i in range(m):
+            fila = [float(val) for val in A_orig[i]]
+            fila.append(float(b_orig[i][0]))
+            Ab.append(fila)
+
+        pasos_txt = MatrizModel.formato_matriz_str(Ab, "Matriz Aumentada Inicial (Ab)")
+        
+        fila_pivote = 0
+        for col in range(n):
+            if fila_pivote >= m:
+                break
+
+            max_i = fila_pivote
+            for i in range(fila_pivote + 1, m):
+                if abs(Ab[i][col]) > abs(Ab[max_i][col]):
+                    max_i = i
+
+            if abs(Ab[max_i][col]) < 1e-9:
+                pasos_txt += f"Columna {col + 1}: Sin pivote válido.\n\n"
+                continue
+
+            if max_i != fila_pivote:
+                Ab[fila_pivote], Ab[max_i] = Ab[max_i], Ab[fila_pivote]
+                pasos_txt += f"Paso: Intercambio de Fila {fila_pivote + 1} con Fila {max_i + 1}\n"
+                pasos_txt += MatrizModel.formato_matriz_str(Ab)
+
+            pivote = Ab[fila_pivote][col]
+            for i in range(fila_pivote + 1, m):
+                factor = Ab[i][col] / pivote
+                if abs(factor) > 1e-9:
+                    for j in range(col, n + 1):
+                        Ab[i][j] -= factor * Ab[fila_pivote][j]
+                    pasos_txt += f"Paso: Fila {i + 1} = Fila {i + 1} - ({factor:.2f}) * Fila {fila_pivote + 1}\n"
+                    pasos_txt += MatrizModel.formato_matriz_str(Ab)
+
+            fila_pivote += 1
+
+        rango_A = 0
+        rango_Ab = 0
+
+        for i in range(m):
+            coefs_ceros = all(abs(Ab[i][j]) < 1e-9 for j in range(n))
+            indep_cero = abs(Ab[i][n]) < 1e-9
+
+            if not coefs_ceros:
+                rango_A += 1
+                rango_Ab += 1
+            elif not indep_cero:
+                rango_Ab += 1
+
+        clasificacion = ""
+        solucion = None
+        verificacion_txt = ""
+
+        if rango_A < rango_Ab:
+            clasificacion = "Sistema Inconsistente: Sin Solución (Incompatible)."
+            solucion = "SIN SOLUCIÓN (Sistema Incompatible)"
+        elif rango_A < n:
+            clasificacion = "Sistema Consistente Indeterminado: Infinitas Soluciones."
+            solucion = "INFINITAS SOLUCIONES (Sistema Indeterminado)"
+        else:
+            clasificacion = "Sistema Consistente Determinado: Presenta Solución Única."
+
+            x = [0.0] * n
+            for i in range(n - 1, -1, -1):
+                suma = Ab[i][n]
+                for j in range(i + 1, n):
+                    suma -= Ab[i][j] * x[j]
+                x[i] = suma / Ab[i][i]
+
+            solucion = [[val] for val in x]
+
+            verificacion_txt = "=== VERIFICACIÓN AUTOMÁTICA (Ax = b) ===\n"
+            for i in range(m):
+                calculado = sum(A_orig[i][j] * x[j] for j in range(n))
+                esperado = b_orig[i][0]
+                verificacion_txt += (
+                    f"Ecuación {i + 1}: {calculado:.4f} ≈ {esperado:.4f} "
+                    f"-> {'OK' if abs(calculado - esperado) < 1e-4 else 'ERROR'}\n"
+                )
+
+        return pasos_txt, clasificacion, solucion, verificacion_txt
+
 
 class CalculadoraMatrices(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Calculadora de Matrices")
-        self.resize(500, 400)
+        self.setWindowTitle("Calculadora de Álgebra Lineal - UAM")
+        self.resize(1000, 750)
+        self.tablas = []
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
+        layout_principal = QVBoxLayout()
 
-        # 1. Controles para ingresar Filas y Columnas
         control_layout = QHBoxLayout()
-        
-        control_layout.addWidget(QLabel("Filas:"))
+        control_layout.setSpacing(15)
+
+        grupo_filas = QHBoxLayout()
+        grupo_filas.setSpacing(6)
+        grupo_filas.addWidget(QLabel("<b>Filas (m):</b>"))
         self.spin_filas = QSpinBox()
         self.spin_filas.setRange(1, 10)
         self.spin_filas.setValue(3)
-        control_layout.addWidget(self.spin_filas)
+        self.spin_filas.setFixedWidth(85)
+        grupo_filas.addWidget(self.spin_filas)
+        control_layout.addLayout(grupo_filas)
 
-        control_layout.addWidget(QLabel("Columnas:"))
+        grupo_cols = QHBoxLayout()
+        grupo_cols.setSpacing(6)
+        grupo_cols.addWidget(QLabel("<b>Columnas (n):</b>"))
         self.spin_columnas = QSpinBox()
         self.spin_columnas.setRange(1, 10)
-        self.spin_columnas.setValue(3)
-        control_layout.addWidget(self.spin_columnas)
+        self.spin_columnas.setValue(4)
+        self.spin_columnas.setFixedWidth(85)
+        grupo_cols.addWidget(self.spin_columnas)
+        control_layout.addLayout(grupo_cols)
 
-        btn_generar = QPushButton("Generar Matriz")
-        btn_generar.clicked.connect(self.generar_matriz)
+        grupo_tablas = QHBoxLayout()
+        grupo_tablas.setSpacing(6)
+        grupo_tablas.addWidget(QLabel("<b>N° de Tablas:</b>"))
+        self.spin_num_tablas = QSpinBox()
+        self.spin_num_tablas.setRange(1, 5)
+        self.spin_num_tablas.setValue(1)
+        self.spin_num_tablas.setFixedWidth(85)
+        grupo_tablas.addWidget(self.spin_num_tablas)
+        control_layout.addLayout(grupo_tablas)
+
+        btn_generar = QPushButton("Generar Tablas")
+        btn_generar.clicked.connect(self.generar_tablas)
         control_layout.addWidget(btn_generar)
 
-        layout.addLayout(control_layout)
+        btn_limpiar = QPushButton("🧹 Limpiar")
+        btn_limpiar.clicked.connect(self.limpiar_tablas)
+        control_layout.addWidget(btn_limpiar)
 
-        # 2. Tabla gráfica para mostrar/ingresar la matriz
-        self.tabla = QTableWidget()
-        layout.addWidget(self.tabla)
+        control_layout.addStretch()
+        layout_principal.addLayout(control_layout)
 
-        # 3. Botón para leer los datos ingresados
-        btn_obtener = QPushButton("Obtener Datos de la Matriz")
-        btn_obtener.clicked.connect(self.obtener_matriz)
-        layout.addWidget(btn_obtener)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.contenedor_tablas = QWidget()
+        self.tablas_layout = QHBoxLayout(self.contenedor_tablas)
+        self.tablas_layout.setSpacing(20)
+        self.scroll_area.setWidget(self.contenedor_tablas)
+        layout_principal.addWidget(self.scroll_area)
 
-        self.lbl_resultado = QLabel("Matriz creada: ")
-        layout.addWidget(self.lbl_resultado)
+        ops_layout = QHBoxLayout()
+        
+        btn_suma = QPushButton("Suma (+)")
+        btn_suma.clicked.connect(lambda: self.ejecutar_operacion("+"))
+        ops_layout.addWidget(btn_suma)
 
-        self.setLayout(layout)
-        self.generar_matriz()
+        btn_resta = QPushButton("Resta (-)")
+        btn_resta.clicked.connect(lambda: self.ejecutar_operacion("-"))
+        ops_layout.addWidget(btn_resta)
 
-    def generar_matriz(self):
-        filas = self.spin_filas.value()
-        columnas = self.spin_columnas.value()
-        self.tabla.setRowCount(filas)
-        self.tabla.setColumnCount(columnas)
+        btn_mult = QPushButton("Multiplicación (*)")
+        btn_mult.clicked.connect(lambda: self.ejecutar_operacion("*"))
+        ops_layout.addWidget(btn_mult)
 
-    def obtener_matriz(self):
-        filas = self.tabla.rowCount()
-        columnas = self.tabla.columnCount()
+        btn_gauss = QPushButton("Resolver Gauss")
+        btn_gauss.clicked.connect(self.ejecutar_gauss)
+        ops_layout.addWidget(btn_gauss)
+
+        layout_principal.addLayout(ops_layout)
+
+        layout_principal.addWidget(QLabel("<b>Vector Solución (x):</b>"))
+        self.tabla_res = QTableWidget()
+        self.tabla_res.setMaximumHeight(100)
+        layout_principal.addWidget(self.tabla_res)
+
+        layout_principal.addWidget(QLabel("<b>Procedimiento Paso a Paso y Clasificación:</b>"))
+        self.txt_bitacora = QTextEdit()
+        self.txt_bitacora.setReadOnly(True)
+        layout_principal.addWidget(self.txt_bitacora)
+
+        self.setLayout(layout_principal)
+        self.generar_tablas()
+
+    def generar_tablas(self):
+        for i in reversed(range(self.tablas_layout.count())):
+            widget = self.tablas_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.setParent(None)
+        
+        self.tablas.clear()
+        f = self.spin_filas.value()
+        c = self.spin_columnas.value()
+        num_tablas = self.spin_num_tablas.value()
+        letras = ["A (Aumentada/Coefs)", "B (Indep)", "C", "D", "E"]
+
+        for i in range(num_tablas):
+            box = QVBoxLayout()
+            box.addWidget(QLabel(f"<b>Matriz {letras[i]}</b>"))
+            
+            tabla = QTableWidget()
+            tabla.setRowCount(f)
+            tabla.setColumnCount(1 if (num_tablas >= 2 and i == 1) else c)
+            box.addWidget(tabla)
+            
+            w = QWidget()
+            w.setLayout(box)
+            self.tablas_layout.addWidget(w)
+            self.tablas.append(tabla)
+
+    def limpiar_tablas(self):
+        for tabla in self.tablas + [self.tabla_res]:
+            tabla.clearContents()
+        self.txt_bitacora.clear()
+
+    def leer_matriz(self, tabla):
+        filas = tabla.rowCount()
+        columnas = tabla.columnCount()
         matriz = []
-
-        for f in range(filas):
+        for i in range(filas):
             fila = []
-            for c in range(columnas):
-                item = self.tabla.item(f, c)
-                valor = int(item.text()) if item and item.text().isdigit() else 0
-                fila.append(valor)
+            for j in range(columnas):
+                item = tabla.item(i, j)
+                val = float(item.text()) if item and item.text().strip() != "" else 0.0
+                fila.append(val)
             matriz.append(fila)
+        return matriz
 
-        self.lbl_resultado.setText(f"Matriz obtenida: {matriz}")
-        print("Matriz ingresada en la interfaz:", matriz)
+    def mostrar_resultado(self, matriz_res):
+        self.tabla_res.clear()
+        
+        # Caso 1: Cadena de texto (Sin solución / Infinitas soluciones)
+        if isinstance(matriz_res, str):
+            self.tabla_res.setRowCount(1)
+            self.tabla_res.setColumnCount(1)
+            item = QTableWidgetItem(matriz_res)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.tabla_res.setItem(0, 0, item)
+            self.tabla_res.setSpan(0, 0, 1, 1)
+            return
+
+        # Caso 2: Sin datos o None
+        if not matriz_res:
+            self.tabla_res.setRowCount(0)
+            self.tabla_res.setColumnCount(0)
+            return
+        
+        # Caso 3: Matriz de valores numéricos (Solución única)
+        filas = len(matriz_res)
+        columnas = len(matriz_res[0])
+        self.tabla_res.setRowCount(filas)
+        self.tabla_res.setColumnCount(columnas)
+        
+        for i in range(filas):
+            for j in range(columnas):
+                val = str(round(matriz_res[i][j], 4))
+                self.tabla_res.setItem(i, j, QTableWidgetItem(val))
+
+    def ejecutar_operacion(self, operacion):
+        try:
+            if len(self.tablas) < 2:
+                QMessageBox.warning(self, "Error", "Se necesitan al menos 2 tablas para realizar operaciones aritméticas.")
+                return
+
+            matrices = [self.leer_matriz(t) for t in self.tablas]
+            f_base, c_base = len(matrices[0]), len(matrices[0][0])
+
+            if operacion in ["+", "-"]:
+                for m in matrices[1:]:
+                    if len(m) != f_base or len(m[0]) != c_base:
+                        QMessageBox.warning(self, "Error", "Las matrices deben tener dimensiones idénticas.")
+                        return
+                res = MatrizModel.sumar(matrices) if operacion == "+" else MatrizModel.restar(matrices)
+
+            elif operacion == "*":
+                for i in range(len(matrices) - 1):
+                    if len(matrices[i][0]) != len(matrices[i+1]):
+                        QMessageBox.warning(self, "Error", "Dimensiones incompatibles para multiplicar.")
+                        return
+                res = MatrizModel.multiplicar(matrices)
+
+            self.mostrar_resultado(res)
+            self.txt_bitacora.setText(f"Operación {operacion} realizada con éxito.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error inesperado: {e}")
+
+    def ejecutar_gauss(self):
+        try:
+            matriz_A_raw = self.leer_matriz(self.tablas[0])
+            num_cols_A = len(matriz_A_raw[0])
+
+            if len(self.tablas) == 1 or num_cols_A > len(matriz_A_raw):
+                if num_cols_A < 2:
+                    QMessageBox.warning(self, "Error", "La tabla debe tener al menos 2 columnas para incluir los coeficientes y el término independiente.")
+                    return
+                A = [fila[:-1] for fila in matriz_A_raw]
+                B = [[fila[-1]] for fila in matriz_A_raw]
+
+            else:
+                A = matriz_A_raw
+                B = self.leer_matriz(self.tablas[1])
+
+                if len(A) != len(B):
+                    QMessageBox.warning(self, "Error", "La Matriz A y el Vector B deben tener el mismo número de filas.")
+                    return
+
+            pasos, clasificacion, solucion, verificacion = MatrizModel.gauss_resolver_completo(A, B)
+
+            self.mostrar_resultado(solucion)
+
+            reporte = (
+                f"======================================\n"
+                f"   CLASIFICACIÓN: {clasificacion}\n"
+                f"======================================\n\n"
+                f"{pasos}\n"
+                f"{verificacion}"
+            )
+            self.txt_bitacora.setText(reporte)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al procesar Gauss: {e}")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
