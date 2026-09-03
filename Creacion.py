@@ -144,6 +144,72 @@ class MatrizModel:
 
         return pasos_txt, clasificacion, solucion, verificacion_txt
 
+    @staticmethod
+    def metodo_gauss_jordan(A_orig, b_orig):
+        m = len(A_orig)        # Número de ecuaciones
+        n = len(A_orig[0])     # Número de variables
+
+        # Construir matriz aumentada
+        Ab = []
+        for i in range(m):
+            fila = [float(val) for val in A_orig[i]]
+            fila.append(float(b_orig[i][0]))
+            Ab.append(fila)
+
+        pasos_txt = MatrizModel.formato_matriz_str(Ab, "Matriz Aumentada Inicial (Ab)")
+
+        for k in range(min(m, n)):
+            pivote = Ab[k][k]
+
+            # Si el pivote es 0, buscar otra fila para intercambiar
+            if abs(pivote) < 1e-9:
+                for r in range(k + 1, m):
+                    if abs(Ab[r][k]) > 1e-9:
+                        Ab[k], Ab[r] = Ab[r], Ab[k]
+                        pivote = Ab[k][k]
+                        pasos_txt += f"Paso: Intercambio Fila {k + 1} con Fila {r + 1}\n"
+                        pasos_txt += MatrizModel.formato_matriz_str(Ab)
+                        break
+
+            # Si el pivote sigue siendo 0, el sistema no es determinado
+            if abs(pivote) < 1e-9:
+                pasos_txt += f"\nColumna {k + 1}: No se encontró un pivote válido.\n"
+                return pasos_txt, "Sistema Inconsistente o Indeterminado", "SIN SOLUCIÓN / INFINITAS SOLUCIONES", ""
+
+            # Normalizar fila pivote (hacer pivote = 1)
+            for j in range(n + 1):
+                Ab[k][j] /= pivote
+            
+            pasos_txt += f"Paso: Fila {k + 1} = Fila {k + 1} / {pivote:.2f} (Convertir pivote en 1)\n"
+            pasos_txt += MatrizModel.formato_matriz_str(Ab)
+
+            # Reducir ceros arriba y abajo del pivote
+            for i in range(m):
+                if i != k:
+                    factor = Ab[i][k]
+                    if abs(factor) > 1e-9:
+                        for j in range(n + 1):
+                            Ab[i][j] -= factor * Ab[k][j]
+                        pasos_txt += f"Paso: Fila {i + 1} = Fila {i + 1} - ({factor:.2f}) * Fila {k + 1}\n"
+                        pasos_txt += MatrizModel.formato_matriz_str(Ab)
+
+        # Extraer solución
+        x = [Ab[i][n] for i in range(m)]
+        solucion = [[val] for val in x]
+        clasificacion = "Sistema Consistente Determinado: Solución Única"
+
+        # Verificación Ax = b
+        verificacion_txt = "=== VERIFICACIÓN AUTOMÁTICA (Ax = b) ===\n"
+        for i in range(m):
+            calculado = sum(A_orig[i][j] * x[j] for j in range(n))
+            esperado = b_orig[i][0]
+            verificacion_txt += (
+                f"Ecuación {i + 1}: {calculado:.4f} ≈ {esperado:.4f} "
+                f"-> {'OK' if abs(calculado - esperado) < 1e-4 else 'ERROR'}\n"
+            )
+
+        return pasos_txt, clasificacion, solucion, verificacion_txt
+
 
 class CalculadoraMatrices(QWidget):
     def __init__(self):
@@ -226,6 +292,10 @@ class CalculadoraMatrices(QWidget):
         btn_gauss.clicked.connect(self.ejecutar_gauss)
         ops_layout.addWidget(btn_gauss)
 
+        btn_gauss_jordan = QPushButton("Resolver Gauss-Jordan")
+        btn_gauss_jordan.clicked.connect(self.ejecutar_gauss_jordan)
+        ops_layout.addWidget(btn_gauss_jordan)
+
         layout_principal.addLayout(ops_layout)
 
         layout_principal.addWidget(QLabel("<b>Vector Solución (x):</b>"))
@@ -304,7 +374,7 @@ class CalculadoraMatrices(QWidget):
             self.tabla_res.setColumnCount(0)
             return
         
-        # Caso 3: Matriz de valores numéricos (Solución única)
+        # Caso 3: Matriz de valores numéricos
         filas = len(matriz_res)
         columnas = len(matriz_res[0])
         self.tabla_res.setRowCount(filas)
@@ -344,25 +414,31 @@ class CalculadoraMatrices(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Ocurrió un error inesperado: {e}")
 
+    def obtener_A_y_B(self):
+        matriz_A_raw = self.leer_matriz(self.tablas[0])
+        num_cols_A = len(matriz_A_raw[0])
+
+        if len(self.tablas) == 1 or num_cols_A > len(matriz_A_raw):
+            if num_cols_A < 2:
+                QMessageBox.warning(self, "Error", "La tabla debe tener al menos 2 columnas para incluir los coeficientes y el término independiente.")
+                return None, None
+            A = [fila[:-1] for fila in matriz_A_raw]
+            B = [[fila[-1]] for fila in matriz_A_raw]
+        else:
+            A = matriz_A_raw
+            B = self.leer_matriz(self.tablas[1])
+
+            if len(A) != len(B):
+                QMessageBox.warning(self, "Error", "La Matriz A y el Vector B deben tener el mismo número de filas.")
+                return None, None
+
+        return A, B
+
     def ejecutar_gauss(self):
         try:
-            matriz_A_raw = self.leer_matriz(self.tablas[0])
-            num_cols_A = len(matriz_A_raw[0])
-
-            if len(self.tablas) == 1 or num_cols_A > len(matriz_A_raw):
-                if num_cols_A < 2:
-                    QMessageBox.warning(self, "Error", "La tabla debe tener al menos 2 columnas para incluir los coeficientes y el término independiente.")
-                    return
-                A = [fila[:-1] for fila in matriz_A_raw]
-                B = [[fila[-1]] for fila in matriz_A_raw]
-
-            else:
-                A = matriz_A_raw
-                B = self.leer_matriz(self.tablas[1])
-
-                if len(A) != len(B):
-                    QMessageBox.warning(self, "Error", "La Matriz A y el Vector B deben tener el mismo número de filas.")
-                    return
+            A, B = self.obtener_A_y_B()
+            if A is None:
+                return
 
             pasos, clasificacion, solucion, verificacion = MatrizModel.gauss_resolver_completo(A, B)
 
@@ -370,6 +446,7 @@ class CalculadoraMatrices(QWidget):
 
             reporte = (
                 f"======================================\n"
+                f"   MÉTODO: GAUSS\n"
                 f"   CLASIFICACIÓN: {clasificacion}\n"
                 f"======================================\n\n"
                 f"{pasos}\n"
@@ -379,6 +456,29 @@ class CalculadoraMatrices(QWidget):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Ocurrió un error al procesar Gauss: {e}")
+
+    def ejecutar_gauss_jordan(self):
+        try:
+            A, B = self.obtener_A_y_B()
+            if A is None:
+                return
+
+            pasos, clasificacion, solucion, verificacion = MatrizModel.metodo_gauss_jordan(A, B)
+
+            self.mostrar_resultado(solucion)
+
+            reporte = (
+                f"======================================\n"
+                f"   MÉTODO: GAUSS-JORDAN\n"
+                f"   CLASIFICACIÓN: {clasificacion}\n"
+                f"======================================\n\n"
+                f"{pasos}\n"
+                f"{verificacion}"
+            )
+            self.txt_bitacora.setText(reporte)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al procesar Gauss-Jordan: {e}")
 
 
 if __name__ == "__main__":
