@@ -1,4 +1,4 @@
-# Proyecto de Álgebra 
+# Proyecto de Álgebra Lineal
 Pruebas de avances de álgebra
 ## Descripción técnica general 
 
